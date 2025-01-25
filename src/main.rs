@@ -2,6 +2,7 @@ use rand::{distributions::Distribution, seq::SliceRandom};
 use rand_distr::Normal;
 use std::ops::{Div, Mul, Neg, Sub};
 
+mod data_loader;
 mod mnist;
 
 fn identity(size: usize) -> Vec<Vec<f32>> {
@@ -34,6 +35,7 @@ fn main() {
         x_test.len(),
     );
 
+    /*
     // Preprocess data (from u8 to f32 between 0.0 and 1.0)
     let x_train: Vec<Vec<f32>> = x_train
         .into_iter()
@@ -51,7 +53,7 @@ fn main() {
                 .collect::<Vec<f32>>()
         })
         .collect();
-    let _y_train: Vec<Vec<f32>> = y_train
+    let y_train: Vec<Vec<f32>> = y_train
         .into_iter()
         .map(|lbl| identity(10)[lbl as usize].clone())
         .collect();
@@ -59,6 +61,7 @@ fn main() {
         .into_iter()
         .map(|lbl| identity(10)[lbl as usize].clone())
         .collect();
+    */
 
     // let some = &y_train[0..5];
     // for s in some {
@@ -86,19 +89,91 @@ fn main() {
     );
 
     // Train model using mini-batches
-    let batch_size: usize = 128;
-    let num_batches: usize = (x_train.len() as f32 / batch_size as f32).ceil() as usize;
+    const BATCH_SIZE: usize = 128;
+    let num_batches: usize = (x_train.len() as f32 / BATCH_SIZE as f32).ceil() as usize;
     let learning_rate: f32 = 0.01;
-    println!("batch_size={batch_size}, num_batches={num_batches}, learning_rate={learning_rate}");
+    println!("batch_size={BATCH_SIZE}, num_batches={num_batches}, learning_rate={learning_rate}");
+
+    let mut dl_train = data_loader::DataLoader::<BATCH_SIZE, true, u8>::new(y_train, x_train);
+    let _dl_test = data_loader::DataLoader::<BATCH_SIZE, true, u8>::new(y_test, x_test);
 
     let mut first0 = true;
     let mut first1 = true;
-    let mut rng = rand::thread_rng();
+    let mut loss = None;
     for epoch in 0..100 {
-        let mut indices: Vec<usize> = (0..x_train.len()).collect();
-        indices.shuffle(&mut rng);
+        for (y_train, x_train) in dl_train.iter() {
+            // Preprocess data (from u8 to f32 between 0.0 and 1.0)
+            let x_batch = Tensor::new(
+                x_train
+                    .into_iter()
+                    .flat_map(|img| {
+                        img.into_iter()
+                            .map(|px| (*px as f32) / 255.0)
+                            .collect::<Vec<f32>>()
+                    })
+                    .collect::<Vec<f32>>(),
+                (BATCH_SIZE, 28 * 28),
+                false,
+            );
+            let y_batch = Tensor::new(
+                y_train
+                    .into_iter()
+                    .flat_map(|lbl| identity(10)[*lbl as usize].clone())
+                    .collect::<Vec<f32>>(),
+                (BATCH_SIZE, 10),
+                false,
+            );
 
-        // let x_train_shuffled = x_train.0.iter();
+            if first0 {
+                first0 = false;
+                println!(
+                    "shape(batch_x)={:#?}, shape(batch_y)={:#?}, batch_y={:#?}",
+                    x_batch.1, y_batch.1, y_batch.0[0],
+                );
+            }
+
+            // Forward pass
+            let hidden_layer_x = x_batch.dot(&weights1); // + bias1;
+            let hidden_layer = hidden_layer_x.relu();
+            let output = (hidden_layer.dot(&weights2)/*+ bias2*/).softmax();
+
+            if first1 {
+                first1 = false;
+                println!(
+                    "shape(hidden_layer_x)={:#?}, shape(output)={:#?}",
+                    hidden_layer_x.1, output.1,
+                );
+            }
+
+            // Compute loss and gradients
+            loss = Some(output.cross_entropy_loss(y_batch));
+
+            /*
+                loss = cross_entropy_loss(output, batch_y)
+                d_output = output - batch_y
+                d_hidden_layer = np.dot(d_output, weights2.T) * d_relu_dx(hidden_layer_x)
+                d_weights2 = np.dot(hidden_layer.T, d_output)
+                d_bias2 = np.sum(d_output, axis=0, keepdims=True)
+                d_weights1 = np.dot(batch_x.T, d_hidden_layer)
+                d_bias1 = np.sum(d_hidden_layer, axis=0, keepdims=True)
+
+                # Update weights and biases
+                weights1 -= learning_rate * d_weights1 / batch_size
+                bias1 -= learning_rate * d_bias1 / batch_size
+                weights2 -= learning_rate * d_weights2 / batch_size
+                bias2 -= learning_rate * d_bias2 / batch_size
+            */
+        }
+
+        println!(
+            "Epoch {}, Loss: {:#?}, Timestamp: {}",
+            epoch + 1,
+            loss,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        );
     }
 }
 
@@ -192,6 +267,25 @@ impl Tensor {
             *it = if *it > 0.0 { 1.0 } else { 0.0 };
         });
         t
+    }
+
+    // Dot product (matrix mul)
+    fn dot(&self, rhs: &Self) -> Self {
+        if self.1 .1 != rhs.1 .0 {
+            panic!("unexpected number of dimensions in dot product (lhs_shape=({}, {}), rhs_shape=({}, {}))", self.1.0, self.1.1, rhs.1.0, rhs.1.1);
+        }
+        let mut out = Tensor::zeros(self.1 .0, rhs.1 .1);
+        for row in 0..out.1 .0 {
+            for column in 0..out.1 .1 {
+                for i in 0..self.1 .1 {
+                    let a = *self.at(row, i).unwrap();
+                    let b = *rhs.at(i, column).unwrap();
+                    //println!("row={row}, column={column}, i={i}, lhs=({row}, {i}), rhs=({i}, {column}), a={a}, b={b}, a*b={}", a*b);
+                    *out.at_mut(row, column).unwrap() += a * b;
+                }
+            }
+        }
+        out
     }
 
     // Calculate max value along one of the axies
@@ -519,5 +613,23 @@ mod tests {
         assert_eq!(t_t2.1.clone(), (1, 1));
         assert!((0.5102270402592233 - t_t2.0[0]).abs() < 0.01);
         //println!("{t_t2:#?}");
+    }
+
+    #[test]
+    fn dot_test() {
+        let t1 = Tensor::new(vec![2.0, 2.0, 0.0, 3.0, 0.0, 4.0], (3, 2), false);
+        let t2 = Tensor::new(vec![2.0, 1.0, 2.0, 3.0, 2.0, 4.0], (2, 3), false);
+        //println!("{t1:#?}, {t2:#?}");
+        let t_t = t1.dot(&t2);
+        assert!((10.0 - t_t.0[0]).abs() < 0.01);
+        assert!((6.0 - t_t.0[1]).abs() < 0.01);
+        assert!((12.0 - t_t.0[2]).abs() < 0.01);
+        assert!((9.0 - t_t.0[3]).abs() < 0.01);
+        assert!((6.0 - t_t.0[4]).abs() < 0.01);
+        assert!((12.0 - t_t.0[5]).abs() < 0.01);
+        assert!((12.0 - t_t.0[6]).abs() < 0.01);
+        assert!((8.0 - t_t.0[7]).abs() < 0.01);
+        assert!((16.0 - t_t.0[8]).abs() < 0.01);
+        //println!("{t_t:#?}");
     }
 }
