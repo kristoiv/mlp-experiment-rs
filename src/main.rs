@@ -128,7 +128,9 @@ fn main() {
                 first0 = false;
                 println!(
                     "shape(batch_x)={:#?}, shape(batch_y)={:#?}, batch_y={:#?}",
-                    x_batch.1, y_batch.1, y_batch.0[0],
+                    x_batch.1,
+                    y_batch.1,
+                    &y_batch.0[0..10],
                 );
             }
 
@@ -147,6 +149,7 @@ fn main() {
 
             // Compute loss and gradients
             loss = Some(output.cross_entropy_loss(y_batch));
+            //break;
 
             /*
                 loss = cross_entropy_loss(output, batch_y)
@@ -174,6 +177,8 @@ fn main() {
                 .unwrap()
                 .as_secs(),
         );
+
+        break;
     }
 }
 
