@@ -50,6 +50,7 @@ pub struct DataLoaderEpochIterator<'a, const BATCH_SIZE: usize, DTYPE> {
 }
 
 impl<'a, const BATCH_SIZE: usize, DTYPE> DataLoaderEpochIterator<'a, BATCH_SIZE, DTYPE> {
+    #[allow(dead_code)]
     pub fn new(vec1: &'a [DTYPE], vec2: &'a [Vec<DTYPE>]) -> Self {
         Self {
             vec1,

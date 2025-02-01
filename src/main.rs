@@ -1,4 +1,4 @@
-use rand::{distributions::Distribution, seq::SliceRandom};
+use rand::distributions::Distribution;
 use rand_distr::Normal;
 use std::ops::{Div, Mul, Neg, Sub};
 
@@ -35,52 +35,19 @@ fn main() {
         x_test.len(),
     );
 
-    /*
-    // Preprocess data (from u8 to f32 between 0.0 and 1.0)
-    let x_train: Vec<Vec<f32>> = x_train
-        .into_iter()
-        .map(|img| {
-            img.into_iter()
-                .map(|px| (px as f32) / 255.0)
-                .collect::<Vec<f32>>()
-        })
-        .collect();
-    let _x_test: Vec<Vec<f32>> = x_test
-        .into_iter()
-        .map(|img| {
-            img.into_iter()
-                .map(|px| (px as f32) / 255.0)
-                .collect::<Vec<f32>>()
-        })
-        .collect();
-    let y_train: Vec<Vec<f32>> = y_train
-        .into_iter()
-        .map(|lbl| identity(10)[lbl as usize].clone())
-        .collect();
-    let _y_test: Vec<Vec<f32>> = y_test
-        .into_iter()
-        .map(|lbl| identity(10)[lbl as usize].clone())
-        .collect();
-    */
-
-    // let some = &y_train[0..5];
-    // for s in some {
-    //     println!("Some: {:#?}", s);
-    // }
-
     // Define model parameters
     let input_dim: usize = 784;
     let hidden_dim: usize = 32;
     let output_dim: usize = 10;
 
     // Initialize weights and biases
-    let weights1 = Tensor::randn(input_dim, hidden_dim) / (input_dim as f32).sqrt();
+    let mut weights1 = Tensor::randn(input_dim, hidden_dim) / (input_dim as f32).sqrt();
     //println!("weights1={weights1:#?}");
-    let bias1 = Tensor::zeros(1, hidden_dim);
+    let mut bias1 = Tensor::zeros(1, hidden_dim);
     //println!("bias1={bias1:#?}");
-    let weights2 = Tensor::randn(hidden_dim, output_dim) / (hidden_dim as f32).sqrt();
+    let mut weights2 = Tensor::randn(hidden_dim, output_dim) / (hidden_dim as f32).sqrt();
     //println!("weights2={weights2:#?}");
-    let bias2 = Tensor::zeros(1, output_dim);
+    let mut bias2 = Tensor::zeros(1, output_dim);
     //println!("bias2={bias2:#?}");
 
     println!(
@@ -95,13 +62,13 @@ fn main() {
     println!("batch_size={BATCH_SIZE}, num_batches={num_batches}, learning_rate={learning_rate}");
 
     let mut dl_train = data_loader::DataLoader::<BATCH_SIZE, true, u8>::new(y_train, x_train);
-    let _dl_test = data_loader::DataLoader::<BATCH_SIZE, true, u8>::new(y_test, x_test);
+    let mut dl_test = data_loader::DataLoader::<10000, false, u8>::new(y_test, x_test);
 
     let mut first0 = true;
     let mut first1 = true;
     let mut loss = None;
     for epoch in 0..100 {
-        for (y_train, x_train) in dl_train.iter() {
+        for (mbatch, (y_train, x_train)) in dl_train.iter().enumerate() {
             // Preprocess data (from u8 to f32 between 0.0 and 1.0)
             let x_batch = Tensor::new(
                 x_train
@@ -135,9 +102,9 @@ fn main() {
             }
 
             // Forward pass
-            let hidden_layer_x = x_batch.dot(&weights1); // + bias1;
+            let hidden_layer_x = x_batch.dot(&weights1); // TODO: + bias1;
             let hidden_layer = hidden_layer_x.relu();
-            let output = (hidden_layer.dot(&weights2)/*+ bias2*/).softmax();
+            let output = (hidden_layer.dot(&weights2)/*TODO: + bias2*/).softmax();
 
             if first1 {
                 first1 = false;
@@ -148,27 +115,37 @@ fn main() {
             }
 
             // Compute loss and gradients
-            loss = Some(output.cross_entropy_loss(y_batch));
+            loss = Some(output.cross_entropy_loss(y_batch.clone()));
+            let d_output = output - y_batch;
+            let d_hidden_layer = d_output.dot(&weights2.transpose()) * hidden_layer_x.d_relu_dx();
+            let d_weights2 = hidden_layer.transpose().dot(&d_output);
+            let d_bias2 = d_output.sum(Axis::Columns, true);
+            let d_weights1 = x_batch.transpose().dot(&d_hidden_layer);
+            let d_bias1 = d_hidden_layer.sum(Axis::Columns, true);
+
+            // Update weights and biases
+            weights1 = weights1 - (learning_rate * d_weights1 / BATCH_SIZE as f32);
+            bias1 = bias1 - (learning_rate * d_bias1 / BATCH_SIZE as f32);
+            weights2 = weights2 - (learning_rate * d_weights2 / BATCH_SIZE as f32);
+            bias2 = bias2 - (learning_rate * d_bias2 / BATCH_SIZE as f32);
+
+            println!(
+                "Epoch {}/{}, MiniBatch {}/{}, Loss: {:#?}, Timestamp: {}",
+                epoch + 1,
+                100,
+                mbatch + 1,
+                BATCH_SIZE,
+                loss,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            );
             //break;
-
-            /*
-                loss = cross_entropy_loss(output, batch_y)
-                d_output = output - batch_y
-                d_hidden_layer = np.dot(d_output, weights2.T) * d_relu_dx(hidden_layer_x)
-                d_weights2 = np.dot(hidden_layer.T, d_output)
-                d_bias2 = np.sum(d_output, axis=0, keepdims=True)
-                d_weights1 = np.dot(batch_x.T, d_hidden_layer)
-                d_bias1 = np.sum(d_hidden_layer, axis=0, keepdims=True)
-
-                # Update weights and biases
-                weights1 -= learning_rate * d_weights1 / batch_size
-                bias1 -= learning_rate * d_bias1 / batch_size
-                weights2 -= learning_rate * d_weights2 / batch_size
-                bias2 -= learning_rate * d_bias2 / batch_size
-            */
         }
+        //break;
 
-        println!(
+        /*println!(
             "Epoch {}, Loss: {:#?}, Timestamp: {}",
             epoch + 1,
             loss,
@@ -176,9 +153,43 @@ fn main() {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+        );*/
+
+        // break;
+    }
+
+    for (y_test, x_test) in dl_test.iter() {
+        // Preprocess data (from u8 to f32 between 0.0 and 1.0)
+        let x_batch = Tensor::new(
+            x_test
+                .into_iter()
+                .flat_map(|img| {
+                    img.into_iter()
+                        .map(|px| (*px as f32) / 255.0)
+                        .collect::<Vec<f32>>()
+                })
+                .collect::<Vec<f32>>(),
+            (BATCH_SIZE, 28 * 28),
+            false,
+        );
+        let y_batch = Tensor::new(
+            y_test
+                .into_iter()
+                .flat_map(|lbl| identity(10)[*lbl as usize].clone())
+                .collect::<Vec<f32>>(),
+            (BATCH_SIZE, 10),
+            false,
         );
 
-        break;
+        // Evaluate model on test set
+        let hidden_layer = (x_batch.dot(&weights1)/*+ bias1*/).relu();
+        let output = (hidden_layer.dot(&weights2)/*+ bias2*/).softmax();
+        let accuracy = (output
+            .argmax(Axis::Rows, false)
+            .eq(&y_batch.argmax(Axis::Rows, false)))
+        .mean(Axis::None, false)
+        .0[0];
+        println!("Test Accuracy: {accuracy}");
     }
 }
 
@@ -186,6 +197,7 @@ fn main() {
 enum Axis {
     None,
     Rows,
+    #[allow(dead_code)]
     Columns,
 }
 
@@ -216,7 +228,7 @@ impl Tensor {
     /// Index into tensor by row and column
     fn at(&self, row: usize, column: usize) -> Option<&f32> {
         match self.2 {
-            true => todo!(),
+            true => self.0.get(column * self.1 .0 + row),
             false => self.0.get(row * self.1 .1 + column),
         }
     }
@@ -224,7 +236,7 @@ impl Tensor {
     /// Index mutably into tensor by row and column
     fn at_mut(&mut self, row: usize, column: usize) -> Option<&mut f32> {
         match self.2 {
-            true => todo!(),
+            true => self.0.get_mut(column * self.1 .0 + row),
             false => self.0.get_mut(row * self.1 .1 + column),
         }
     }
@@ -247,7 +259,16 @@ impl Tensor {
         t
     }
 
+    /// Transpose matrix
+    fn transpose(&self) -> Self {
+        let mut t = self.clone();
+        t.1 = (t.1 .1, t.1 .0);
+        t.2 = true;
+        t
+    }
+
     /// Apply sigmoid activation function to tensor
+    #[allow(dead_code)]
     fn sigmoid(&self) -> Self {
         let mut t = self.clone();
         t.0.iter_mut().for_each(|it| {
@@ -266,6 +287,7 @@ impl Tensor {
     }
 
     /// Calculate derivative of relu with respect to x
+    #[allow(dead_code)]
     fn d_relu_dx(&self) -> Self {
         let mut t = self.clone();
         t.0.iter_mut().for_each(|it| {
@@ -281,8 +303,8 @@ impl Tensor {
         }
         let mut out = Tensor::zeros(self.1 .0, rhs.1 .1);
         for row in 0..out.1 .0 {
-            for column in 0..out.1 .1 {
-                for i in 0..self.1 .1 {
+            for i in 0..self.1 .1 {
+                for column in 0..out.1 .1 {
                     let a = *self.at(row, i).unwrap();
                     let b = *rhs.at(i, column).unwrap();
                     //println!("row={row}, column={column}, i={i}, lhs=({row}, {i}), rhs=({i}, {column}), a={a}, b={b}, a*b={}", a*b);
@@ -291,6 +313,32 @@ impl Tensor {
             }
         }
         out
+    }
+
+    fn argmax(&self, axis: Axis, _keep_dims: bool) -> Self {
+        match axis {
+            Axis::Rows => {
+                let mut out = Tensor::zeros(self.1 .0, 1);
+                for row in 0..self.1 .0 {
+                    let mut max: Option<(usize, f32)> = None;
+                    for column in 0..self.1 .1 {
+                        let v = *self.at(row, column).unwrap();
+                        match max {
+                            Some(v_old) => {
+                                if v_old.1 < v {
+                                    max = Some((column, v));
+                                }
+                            }
+                            None => max = Some((column, v)),
+                        }
+                    }
+                    *out.at_mut(row, 0).unwrap() = max.unwrap().0 as f32;
+                }
+                out
+            }
+            Axis::None => todo!(),
+            Axis::Columns => todo!(),
+        }
     }
 
     // Calculate max value along one of the axies
@@ -320,28 +368,45 @@ impl Tensor {
         }
     }
 
+    fn eq(&self, other: &Self) -> Tensor {
+        if self.1 .0 != other.1 .0 || self.1 .1 != 1 || other.1 .1 != 1 {
+            panic!("unexpected number of dimensions in divison (lhs_shape=({}, {}), rhs_shape=({}, {}))", self.1.0, self.1.1, other.1.0, other.1.1);
+        }
+        let mut out = Tensor::zeros(self.1 .0, 1);
+        for row in 0..self.1 .0 {
+            let v0 = *self.at(row, 0).unwrap();
+            let v1 = *other.at(row, 0).unwrap();
+            *out.at_mut(row, 0).unwrap() = if v0 == v1 { 1.0 } else { 0.0 };
+        }
+        out
+    }
+
     // Calculate sum of value along one of the axies
     fn sum(&self, axis: Axis, _keep_dims: bool) -> Self {
         match axis {
             Axis::Rows => {
                 let mut out = Tensor::zeros(self.1 .0, 1);
                 for row in 0..self.1 .0 {
-                    let mut sum = None;
+                    let mut sum = 0.0;
                     for column in 0..self.1 .1 {
-                        let v = *self.at(row, column).unwrap();
-                        match sum {
-                            Some(v_old) => {
-                                sum = Some(v + v_old);
-                            }
-                            None => sum = Some(v),
-                        }
+                        sum += *self.at(row, column).unwrap();
                     }
-                    *out.at_mut(row, 0).unwrap() = sum.unwrap();
+                    *out.at_mut(row, 0).unwrap() = sum;
+                }
+                out
+            }
+            Axis::Columns => {
+                let mut out = Tensor::zeros(1, self.1 .1);
+                for column in 0..self.1 .1 {
+                    let mut sum = 0.0;
+                    for row in 0..self.1 .0 {
+                        sum += *self.at(row, column).unwrap();
+                    }
+                    *out.at_mut(0, column).unwrap() = sum;
                 }
                 out
             }
             Axis::None => todo!(),
-            Axis::Columns => todo!(),
         }
     }
 
@@ -411,6 +476,24 @@ impl Div for Tensor {
     }
 }
 
+impl Mul<f32> for Tensor {
+    type Output = Self;
+
+    fn mul(mut self, rhs: f32) -> Self::Output {
+        self.0.iter_mut().for_each(|it| *it = *it * rhs);
+        self
+    }
+}
+
+impl Mul<Tensor> for f32 {
+    type Output = Tensor;
+
+    fn mul(self, mut rhs: Tensor) -> Self::Output {
+        rhs.0.iter_mut().for_each(|it| *it = *it * self);
+        rhs
+    }
+}
+
 impl Mul for Tensor {
     type Output = Self;
 
@@ -431,14 +514,22 @@ impl Sub for Tensor {
     type Output = Self;
 
     fn sub(mut self, rhs: Self) -> Self::Output {
-        if rhs.1 .0 != self.1 .0 || rhs.1 .1 != 1 {
-            panic!("unexpected number of dimensions in substraction (lhs_shape=({}, {}), rhs_shape=({}, {}))", self.1.0, self.1.1, rhs.1.0, rhs.1.1);
-        }
-        for row in 0..self.1 .0 {
-            let r = rhs.at(row, 0).unwrap();
-            for column in 0..self.1 .1 {
-                *self.at_mut(row, column).unwrap() -= *r;
+        if self.1 .0 == rhs.1 .0 && self.1 .1 == rhs.1 .1 {
+            for row in 0..self.1 .0 {
+                for column in 0..self.1 .1 {
+                    let r = rhs.at(row, column).unwrap();
+                    *self.at_mut(row, column).unwrap() -= *r;
+                }
             }
+        } else if rhs.1 .0 == self.1 .0 && rhs.1 .1 == 1 {
+            for row in 0..self.1 .0 {
+                let r = rhs.at(row, 0).unwrap();
+                for column in 0..self.1 .1 {
+                    *self.at_mut(row, column).unwrap() -= *r;
+                }
+            }
+        } else {
+            panic!("unexpected number of dimensions in substraction (lhs_shape=({}, {}), rhs_shape=({}, {}))", self.1.0, self.1.1, rhs.1.0, rhs.1.1);
         }
         self
     }
@@ -465,13 +556,15 @@ mod tests {
     #[test]
     fn zeros_test() {
         let t = Tensor::zeros(2, 2);
-        println!("{t:#?}");
+        assert_eq!(0.0, t.0.iter().sum::<f32>());
+        //println!("{t:#?}");
     }
 
     #[test]
     fn randn_test() {
         let t = Tensor::randn(2, 2);
-        println!("{t:#?}");
+        assert_ne!(0.0, t.0.iter().sum::<f32>());
+        //println!("{t:#?}");
     }
 
     #[test]
@@ -534,6 +627,27 @@ mod tests {
         assert_eq!(2, t_t.0.len());
         assert!((0.59283876 - t_t.0[0]).abs() < 0.01);
         assert!((0.58973557 - t_t.0[1]).abs() < 0.01);
+        //println!("{t_t:#?}");
+    }
+
+    #[test]
+    fn sub_test() {
+        let t1 = Tensor::new(
+            vec![0.87223408, 1.0252992, -0.85301189, 0.41544288],
+            (2, 2),
+            false,
+        );
+        let t2 = Tensor::new(
+            vec![0.87223408, 1.0252992, -0.85301189, 0.41544288],
+            (2, 2),
+            false,
+        );
+        //println!("{t1:#?}, {t2:#?}");
+        let t_t = t1 - t2;
+        assert!((0.0 - t_t.0[0]).abs() < 0.01);
+        assert!((0.0 - t_t.0[1]).abs() < 0.01);
+        assert!((0.0 - t_t.0[2]).abs() < 0.01);
+        assert!((0.0 - t_t.0[3]).abs() < 0.01);
         //println!("{t_t:#?}");
     }
 
@@ -635,6 +749,21 @@ mod tests {
         assert!((12.0 - t_t.0[6]).abs() < 0.01);
         assert!((8.0 - t_t.0[7]).abs() < 0.01);
         assert!((16.0 - t_t.0[8]).abs() < 0.01);
+        //println!("{t_t:#?}");
+    }
+
+    #[test]
+    fn transpose_test() {
+        let t = Tensor::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], (2, 3), false);
+        //println!("{t:#?}");
+        let t_t = t.transpose();
+        assert_eq!((3, 2), t_t.1);
+        assert!((1.0 - *t_t.at(0, 0).unwrap()).abs() < 0.01);
+        assert!((4.0 - *t_t.at(0, 1).unwrap()).abs() < 0.01);
+        assert!((2.0 - *t_t.at(1, 0).unwrap()).abs() < 0.01);
+        assert!((5.0 - *t_t.at(1, 1).unwrap()).abs() < 0.01);
+        assert!((3.0 - *t_t.at(2, 0).unwrap()).abs() < 0.01);
+        assert!((6.0 - *t_t.at(2, 1).unwrap()).abs() < 0.01);
         //println!("{t_t:#?}");
     }
 }
