@@ -1,6 +1,6 @@
 use rand::distributions::Distribution;
 use rand_distr::Normal;
-use std::ops::{Div, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 mod data_loader;
 mod mnist;
@@ -68,7 +68,6 @@ fn main() {
 
     let mut first0 = true;
     let mut first1 = true;
-    let mut loss = None;
     for epoch in 0..EPOCHS {
         for (mbatch, (y_train, x_train)) in dl_train.iter().enumerate() {
             // Preprocess data (from u8 to f32 between 0.0 and 1.0)
@@ -104,9 +103,9 @@ fn main() {
             }
 
             // Forward pass
-            let hidden_layer_x = x_batch.dot(&weights1); // TODO: + bias1;
+            let hidden_layer_x = x_batch.dot(&weights1) + bias1.clone();
             let hidden_layer = hidden_layer_x.relu();
-            let output = (hidden_layer.dot(&weights2)/*TODO: + bias2*/).softmax();
+            let output = (hidden_layer.dot(&weights2) + bias2.clone()).softmax();
 
             if first1 {
                 first1 = false;
@@ -117,7 +116,7 @@ fn main() {
             }
 
             // Compute loss and gradients
-            loss = Some(output.cross_entropy_loss(y_batch.clone()));
+            let loss = Some(output.cross_entropy_loss(y_batch.clone()));
             let d_output = output - y_batch;
             let d_hidden_layer = d_output.dot(&weights2.transpose()) * hidden_layer_x.d_relu_dx();
             let d_weights2 = hidden_layer.transpose().dot(&d_output);
@@ -146,18 +145,6 @@ fn main() {
             //break;
         }
         //break;
-
-        /*println!(
-            "Epoch {}, Loss: {:#?}, Timestamp: {}",
-            epoch + 1,
-            loss,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        );*/
-
-        // break;
     }
 
     for (y_test, x_test) in dl_test.iter() {
@@ -184,8 +171,8 @@ fn main() {
         );
 
         // Evaluate model on test set
-        let hidden_layer = (x_batch.dot(&weights1)/*+ bias1*/).relu();
-        let output = (hidden_layer.dot(&weights2)/*+ bias2*/).softmax();
+        let hidden_layer = (x_batch.dot(&weights1) + bias1.clone()).relu();
+        let output = (hidden_layer.dot(&weights2) + bias2.clone()).softmax();
         let accuracy = (output
             .argmax(Axis::Rows, false)
             .eq(&y_batch.argmax(Axis::Rows, false)))
@@ -507,6 +494,38 @@ impl Mul for Tensor {
             for column in 0..self.1 .1 {
                 *self.at_mut(row, column).unwrap() *= *rhs.at(row, column).unwrap();
             }
+        }
+        self
+    }
+}
+
+impl Add for Tensor {
+    type Output = Self;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        if self.1 .0 == rhs.1 .0 && self.1 .1 == rhs.1 .1 {
+            for row in 0..self.1 .0 {
+                for column in 0..self.1 .1 {
+                    let r = rhs.at(row, column).unwrap();
+                    *self.at_mut(row, column).unwrap() += *r;
+                }
+            }
+        } else if rhs.1 .0 == self.1 .0 && rhs.1 .1 == 1 {
+            for row in 0..self.1 .0 {
+                let r = rhs.at(row, 0).unwrap();
+                for column in 0..self.1 .1 {
+                    *self.at_mut(row, column).unwrap() += *r;
+                }
+            }
+        } else if rhs.1 .1 == self.1 .1 && rhs.1 .0 == 1 {
+            for row in 0..self.1 .0 {
+                for column in 0..self.1 .1 {
+                    let r = rhs.at(0, column).unwrap();
+                    *self.at_mut(row, column).unwrap() += *r;
+                }
+            }
+        } else {
+            panic!("unexpected number of dimensions in substraction (lhs_shape=({}, {}), rhs_shape=({}, {}))", self.1.0, self.1.1, rhs.1.0, rhs.1.1);
         }
         self
     }
