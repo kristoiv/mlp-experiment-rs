@@ -56,7 +56,9 @@ fn main() {
     );
 
     // Train model using mini-batches
+    const EPOCHS: usize = 10;
     const BATCH_SIZE: usize = 128;
+    let batches_total = x_train.len() / BATCH_SIZE;
     let num_batches: usize = (x_train.len() as f32 / BATCH_SIZE as f32).ceil() as usize;
     let learning_rate: f32 = 0.01;
     println!("batch_size={BATCH_SIZE}, num_batches={num_batches}, learning_rate={learning_rate}");
@@ -67,7 +69,7 @@ fn main() {
     let mut first0 = true;
     let mut first1 = true;
     let mut loss = None;
-    for epoch in 0..100 {
+    for epoch in 0..EPOCHS {
         for (mbatch, (y_train, x_train)) in dl_train.iter().enumerate() {
             // Preprocess data (from u8 to f32 between 0.0 and 1.0)
             let x_batch = Tensor::new(
@@ -130,12 +132,12 @@ fn main() {
             bias2 = bias2 - (learning_rate * d_bias2 / BATCH_SIZE as f32);
 
             println!(
-                "Epoch {}/{}, MiniBatch {}/{}, Loss: {:#?}, Timestamp: {}",
+                "Epoch {:03}/{}, MiniBatch {:03}/{}, Loss: {:.03}, Timestamp: {}",
                 epoch + 1,
-                100,
+                EPOCHS,
                 mbatch + 1,
-                BATCH_SIZE,
-                loss,
+                batches_total,
+                loss.and_then(|it| Some(it.0[0])).or(Some(0.0)).unwrap(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
