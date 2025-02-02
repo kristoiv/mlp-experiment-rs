@@ -1,5 +1,5 @@
 # Naive Pure-Rust Experiment in Multi-Layer Perceptrons (MLPs)
-This project is a naive implementation of a multi-layer perceptron (MLP) designed to classify the MNIST dataset. The network uses ReLU activation in the hidden layer, softmax for the output layer, and achieves ~95% accuracy in just 10 epochs with a single hidden layer of 32 neurons.
+This project is a naive implementation of a multi-layer perceptron (MLP) designed to classify the MNIST dataset. The network uses ReLU activation in the hidden layer, softmax for the output layer, and achieves 90%+ accuracy in just 10 epochs with a single hidden layer of 32 neurons.
 
 ## Implementation Details
 - **Language**: Pure rust (~850 lines incl. some tests)

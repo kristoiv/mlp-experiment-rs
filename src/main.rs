@@ -147,6 +147,7 @@ fn main() {
         //break;
     }
 
+    println!("--\nCalculating accuracy...");
     for (y_test, x_test) in dl_test.iter() {
         // Preprocess data (from u8 to f32 between 0.0 and 1.0)
         let x_batch = Tensor::new(
@@ -158,7 +159,7 @@ fn main() {
                         .collect::<Vec<f32>>()
                 })
                 .collect::<Vec<f32>>(),
-            (BATCH_SIZE, 28 * 28),
+            (10000, 28 * 28),
             false,
         );
         let y_batch = Tensor::new(
@@ -166,7 +167,7 @@ fn main() {
                 .into_iter()
                 .flat_map(|lbl| identity(10)[*lbl as usize].clone())
                 .collect::<Vec<f32>>(),
-            (BATCH_SIZE, 10),
+            (10000, 10),
             false,
         );
 
